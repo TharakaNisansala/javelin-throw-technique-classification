@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Javelin Throw Analysis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏏 Javelin Throw Analysis</h1>
+            <p>Upload a video to analyze javelin throw technique. The system detects pose landmarks,
+            classifies the throw, and annotates each frame with body part feedback.</p>
+        </header>
+
+        <main>
+            {% if error %}
+            <div class="error-box">
+                <strong>Error:</strong> {{ error }}
+            </div>
+            {% endif %}
+
+            <div class="card upload-card">
+                <h2>Upload Video</h2>
+                <form action="{{ url_for('upload_video') }}" method="post" enctype="multipart/form-data"
+                      id="upload-form">
+                    <div class="drop-zone" id="drop-zone">
+                        <div class="drop-zone-content">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1.5">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <p>Drag & drop a video here, or click to browse</p>
+                            <span class="file-hint">Supported: MP4, AVI, MOV, MKV, WebM</span>
+                        </div>
+                        <input type="file" name="video" id="video-input" accept="video/*" style="display:none">
+                    </div>
+                    <div id="file-info" class="file-info" style="display:none">
+                        <span id="file-name"></span>
+                        <span id="file-size"></span>
+                    </div>
+
+                    <details class="advanced-settings">
+                        <summary>Advanced Settings</summary>
+                        <div class="settings-grid">
+                            <div class="setting">
+                                <label for="threshold">Classification threshold</label>
+                                <input type="number" name="threshold" id="threshold" step="0.01" value="0.40" min="0" max="1">
+                                <small>Lower = more sensitive to errors</small>
+                            </div>
+                            <div class="setting">
+                                <label for="z_threshold">Z-score threshold</label>
+                                <input type="number" name="z_threshold" id="z_threshold" step="0.1" value="2.0" min="0" max="10">
+                                <small>Higher = fewer landmarks flagged</small>
+                            </div>
+                            <div class="setting">
+                                <label for="skip_frames">Skip initial frames</label>
+                                <input type="number" name="skip_frames" id="skip_frames" value="0" min="0" max="50">
+                                <small>Avoid detection noise at start</small>
+                            </div>
+                            <div class="setting">
+                                <label for="top_frames">Max flagged frames</label>
+                                <input type="number" name="top_frames" id="top_frames" value="15" min="5" max="200">
+                                <small>Frames to highlight in report</small>
+                            </div>
+                        </div>
+                    </details>
+
+                    <button type="submit" class="btn btn-primary" id="submit-btn">
+                        <span class="btn-text">Analyze Video</span>
+                        <span class="btn-spinner" style="display:none"></span>
+                    </button>
+                </form>
+            </div>
+
+            <div class="card info-card">
+                <h3>How it works</h3>
+                <ol>
+                    <li><strong>Upload</strong> — Select a video of a javelin throw</li>
+                    <li><strong>Analysis</strong> — The system extracts 12 body landmarks using MediaPipe
+                        and runs them through a hybrid LSTM + Random Forest model</li>
+                    <li><strong>Results</strong> — See the overall classification (CORRECT / INCORRECT)
+                        and browse every frame with color-coded landmark annotations</li>
+                </ol>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const videoInput = document.getElementById('video-input');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const fileSize = document.getElementById('file-size');
+        const submitBtn = document.getElementById('submit-btn');
+        const uploadForm = document.getElementById('upload-form');
+
+        // Click to open file picker
+        dropZone.addEventListener('click', () => videoInput.click());
+
+        // File selected via picker
+        videoInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                showFileInfo(e.target.files[0]);
+            }
+        });
+
+        // Drag & drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                videoInput.files = e.dataTransfer.files;
+                showFileInfo(e.dataTransfer.files[0]);
+            }
+        });
+
+        // Submit spinner
+        uploadForm.addEventListener('submit', () => {
+            submitBtn.disabled = true;
+            submitBtn.querySelector('.btn-text').textContent = 'Processing...';
+            submitBtn.querySelector('.btn-spinner').style.display = 'inline-block';
+        });
+
+        function showFileInfo(file) {
+            fileName.textContent = file.name;
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+            fileSize.textContent = `(${sizeMB} MB)`;
+            fileInfo.style.display = 'flex';
+            dropZone.classList.add('has-file');
+        }
+    </script>
+</body>
+</html>

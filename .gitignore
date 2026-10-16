@@ -1,0 +1,9 @@
+# Session data (uploaded videos, processed frames, results)
+sessions/
+.venv/
+.venv311/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.qwen/

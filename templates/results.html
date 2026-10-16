@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Results - Javelin Throw Analysis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏏 Analysis Results</h1>
+            <p class="video-title">{{ results.video_name }}</p>
+        </header>
+
+        <!-- ── Overall Result Banner ── -->
+        <div class="result-banner {{ 'banner-correct' if results.label == 'correct' else 'banner-incorrect' }}">
+            <div class="result-icon">{{ '✅' if results.label == 'correct' else '❌' }}</div>
+            <div class="result-text">
+                <h2>{{ results.label|upper }}</h2>
+                <p>Confidence: <strong>{{ '%.1f'|format(results.probability * 100) }}%</strong>
+                   (threshold: {{ '%.0f'|format(results.threshold * 100) }}%)</p>
+            </div>
+        </div>
+
+        <!-- ── Summary Stats ── -->
+        <div class="stats-row">
+            <div class="stat-card">
+                <span class="stat-value">{{ results.total_frames }}</span>
+                <span class="stat-label">Total frames</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{ results.analysis_frames }}</span>
+                <span class="stat-label">Analyzed</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{ results.flagged_frame_indices|length }}</span>
+                <span class="stat-label">Flagged frames</span>
+            </div>
+            <div class="stat-card {{ 'stat-bad' if results.flagged_frame_indices|length > 0 else 'stat-good' }}">
+                <span class="stat-value">{{ '%.2f'|format(results.frame_threshold) }}</span>
+                <span class="stat-label">P90 threshold</span>
+            </div>
+        </div>
+
+        <!-- ── Technique Classification Card ── -->
+        {% if results.technique %}
+        <div class="technique-card">
+            <div class="technique-header">
+                <h2>🎯 Technique Classification</h2>
+                <p class="technique-subtitle">Per-frame Random Forest classification of throwing technique</p>
+            </div>
+            <div class="technique-main">
+                <div class="technique-overall">
+                    <span class="technique-label {{ 'tech-' + results.technique.overall_class.lower() }}">
+                        {{ results.technique.overall_class }}
+                    </span>
+                    <span class="technique-vote">
+                        {{ results.technique.overall_count }} / {{ results.analysis_frames }} frames
+                        ({{ results.technique.overall_pct }}%)
+                    </span>
+                </div>
+                <div class="technique-probs">
+                    {% set tech_colors = {
+                        'botherrors': '#ef4444',
+                        'goodtechnique': '#22c55e',
+                        'lowarm': '#f59e0b',
+                        'poorleftlegblock': '#a855f7',
+                    } %}
+                    {% for cls in results.technique.class_names %}
+                    {% set prob = results.technique.avg_probs[cls] %}
+                    {% set color = tech_colors.get(cls.lower(), '#6b7280') %}
+                    <div class="tech-bar-row">
+                        <span class="tech-bar-label">{{ cls }}</span>
+                        <div class="tech-bar-track">
+                            <div class="tech-bar-fill" style="width: {{ (prob * 100)|round }}%; background: {{ color }};"></div>
+                        </div>
+                        <span class="tech-bar-value">{{ '%.1f'|format(prob * 100) }}%</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="content-row">
+            <!-- ── Frame Viewer ── -->
+            <div class="frame-viewer-card">
+                <h2>Frame Viewer</h2>
+
+                <div class="frame-display">
+                    <div class="frame-nav">
+                        <button class="nav-btn" id="first-btn" title="First frame">⏮</button>
+                        <button class="nav-btn" id="prev-btn" title="Previous">◀</button>
+                        <span id="frame-counter">Frame <span id="current-frame">1</span> / {{ results.analysis_frames }}</span>
+                        <button class="nav-btn" id="next-btn" title="Next">▶</button>
+                        <button class="nav-btn" id="last-btn" title="Last frame">⏭</button>
+                    </div>
+
+                    <div class="frame-image-wrapper">
+                        <img id="frame-image" src="" alt="Annotated frame" class="frame-image">
+                        <div id="frame-loading" class="frame-loading">Loading...</div>
+                    </div>
+
+                    <div class="frame-legend">
+                        <span class="legend-item"><span class="legend-dot dot-green"></span> Correct landmark</span>
+                        <span class="legend-item"><span class="legend-dot dot-red"></span> Incorrect landmark</span>
+                    </div>
+                </div>
+
+                <div class="frame-details" id="frame-details">
+                    <p>Select a frame to see details.</p>
+                </div>
+
+                {% if results.flagged_frame_indices|length > 0 %}
+                <div class="flagged-list">
+                    <h3>⚠ Flagged Frames (by combined score)</h3>
+                    <div class="flagged-badges">
+                        {% for f_idx in flagged_display %}
+                        <button class="badge badge-flagged" data-frame="{{ f_idx }}"
+                                onclick="goToFrame({{ f_idx }})">
+                            #{{ f_idx + results.skip_frames }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- ── Sidebar: Landmark Legend & Summary ── -->
+            <div class="sidebar">
+                <div class="card">
+                    <h3>Landmark Legend</h3>
+                    <table class="legend-table">
+                        <thead>
+                            <tr><th>#</th><th>Name</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for name in results.landmark_names %}
+                            <tr>
+                                <td class="lm-idx">{{ loop.index0 }}</td>
+                                <td class="lm-name" id="lm-name-{{ loop.index0 }}">{{ name }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                {% if top_landmarks %}
+                <div class="card">
+                    <h3>Most Problematic Landmarks</h3>
+                    <ol class="top-landmarks">
+                        {% for lm_name, count in top_landmarks %}
+                        <li><strong>{{ lm_name }}</strong> — {{ count }} flagged frames</li>
+                        {% endfor %}
+                    </ol>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="action-bar">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">← Analyze Another Video</a>
+        </div>
+    </div>
+
+    <script>
+        // ── Frame data from server ──
+        const totalFrames = {{ results.analysis_frames }};
+        const frameResults = {{ results.frames|tojson }};
+        const skipFrames = {{ results.skip_frames }};
+        const sessionId = "{{ session_id }}";
+        const flaggedIndices = new Set({{ results.flagged_frame_indices|tojson }});
+        {% if results.technique %}
+        const techniqueFrameResults = null;
+        {% endif %}
+
+        let currentIdx = 0;
+
+        function getFrameUrl(idx) {
+            return "{{ url_for('serve_frame', session_id=session_id, frame_idx='') }}" + idx;
+        }
+
+        function updateFrame(idx) {
+            if (idx < 0 || idx >= totalFrames) return;
+            currentIdx = idx;
+
+            const img = document.getElementById('frame-image');
+            const loading = document.getElementById('frame-loading');
+            const counter = document.getElementById('current-frame');
+            const details = document.getElementById('frame-details');
+
+            loading.style.display = 'block';
+            img.style.display = 'none';
+
+            // Preload image
+            const preloader = new Image();
+            preloader.onload = function() {
+                img.src = this.src;
+                img.style.display = 'block';
+                loading.style.display = 'none';
+            };
+            preloader.onerror = function() {
+                loading.textContent = 'Failed to load frame';
+            };
+            preloader.src = getFrameUrl(idx);
+
+            counter.textContent = idx + 1;
+            updateDetails(idx);
+            updateNavButtons();
+        }
+
+        function updateNavButtons() {
+            document.getElementById('prev-btn').disabled = (currentIdx <= 0);
+            document.getElementById('first-btn').disabled = (currentIdx <= 0);
+            document.getElementById('next-btn').disabled = (currentIdx >= totalFrames - 1);
+            document.getElementById('last-btn').disabled = (currentIdx >= totalFrames - 1);
+        }
+
+        function updateDetails(idx) {
+            const frame = frameResults[idx];
+            const details = document.getElementById('frame-details');
+            const origIdx = frame.original_frame;
+
+            let html = `<div class="frame-info-row">
+                <div class="fi-item"><strong>Frame:</strong> #${origIdx} (analysis idx: ${idx})</div>
+                <div class="fi-item"><strong>Combined score:</strong> ${frame.combined_score.toFixed(4)}</div>
+                <div class="fi-item"><strong>Deviation (σ):</strong> ${frame.deviation.toFixed(2)}</div>
+                <div class="fi-item"><strong>RF prob:</strong> ${frame.rf_prob.toFixed(4)}</div>
+            </div>`;
+
+            if (frame.is_flagged) {
+                html += '<div class="frame-bad"><strong>⚠ Flagged</strong> — Problematic landmarks:</div>';
+                if (frame.bad_landmark_names.length > 0) {
+                    html += '<div class="bad-landmarks">';
+                    for (let i = 0; i < frame.bad_landmark_names.length; i++) {
+                        const lmName = frame.bad_landmark_names[i];
+                        const lmIdx = frame.bad_landmarks[i];
+                        html += `<span class="badge badge-red"
+                                    onmouseenter="highlightLandmark(${lmIdx}, true)"
+                                    onmouseleave="highlightLandmark(${lmIdx}, false)">
+                                    ${lmName}
+                                 </span>`;
+                    }
+                    html += '</div>';
+                }
+                details.className = 'frame-details frame-details-bad';
+            } else {
+                html += '<div class="frame-good">✅ All landmarks within normal range</div>';
+                details.className = 'frame-details frame-details-good';
+            }
+
+            details.innerHTML = html;
+        }
+
+        function highlightLandmark(idx, on) {
+            const el = document.getElementById('lm-name-' + idx);
+            if (el) {
+                el.style.backgroundColor = on ? '#ffeb3b' : 'transparent';
+                el.style.fontWeight = on ? 'bold' : 'normal';
+            }
+        }
+
+        function goToFrame(idx) {
+            if (idx >= 0 && idx < totalFrames) {
+                updateFrame(idx);
+            }
+        }
+
+        // ── Keyboard navigation ──
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                goToFrame(currentIdx + 1);
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                goToFrame(currentIdx - 1);
+            } else if (e.key === 'Home') {
+                e.preventDefault();
+                goToFrame(0);
+            } else if (e.key === 'End') {
+                e.preventDefault();
+                goToFrame(totalFrames - 1);
+            }
+        });
+
+        // ── Button bindings ──
+        document.getElementById('first-btn').addEventListener('click', () => goToFrame(0));
+        document.getElementById('prev-btn').addEventListener('click', () => goToFrame(currentIdx - 1));
+        document.getElementById('next-btn').addEventListener('click', () => goToFrame(currentIdx + 1));
+        document.getElementById('last-btn').addEventListener('click', () => goToFrame(totalFrames - 1));
+
+        // ── Init ──
+        updateFrame(0);
+    </script>
+</body>
+</html>

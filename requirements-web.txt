@@ -1,0 +1,8 @@
+# Web app dependencies for javelin throw analysis
+flask>=3.0
+opencv-python>=4.8
+mediapipe>=0.10
+tensorflow>=2.13
+numpy>=1.24
+joblib>=1.3
+scikit-learn>=1.3  # required by joblib models
